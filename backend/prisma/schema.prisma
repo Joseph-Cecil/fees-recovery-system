@@ -1,0 +1,874 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// ENUMS
+// ===========================================
+
+enum UserRole {
+  OWNER
+  ADMIN
+  FINANCE
+  STAFF
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+  SUSPENDED
+}
+
+enum StudentStatus {
+  ACTIVE
+  GRADUATED
+  WITHDRAWN
+  SUSPENDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCESSFUL
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  MTN_MOMO
+  VODAFONE_CASH
+  AIRTELTIGO_MONEY
+  CARD
+  GHQR
+  BANK_TRANSFER
+  CASH
+}
+
+enum MessageChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+}
+
+enum MessageStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum MessageType {
+  BILL_SENT
+  REMINDER_PRE_DUE
+  REMINDER_DUE
+  REMINDER_OVERDUE_7
+  REMINDER_OVERDUE_14
+  PAYMENT_RECEIVED
+  RECEIPT
+  CUSTOM
+}
+
+enum FeeType {
+  TUITION
+  PTA
+  BOOKS
+  UNIFORM
+  TRANSPORT
+  HOSTEL
+  EXAM
+  ICT
+  SPORTS
+  FEEDING
+  OTHER
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+  SEND_MESSAGE
+  PAYMENT_RECEIVED
+  PAYMENT_REFUND
+  SETTINGS_CHANGE
+}
+
+// ===========================================
+// CORE MODELS
+// ===========================================
+
+/// School/Organization - Multi-tenant root
+model School {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  address     String?
+  city        String?
+  region      String?
+  phone       String?
+  email       String?
+  website     String?
+  tin         String?
+  logoUrl     String?
+  
+  /// Settings stored as JSON for flexibility
+  settings    Json     @default("{}")
+  
+  /// Subscription/billing info
+  plan        String   @default("basic")
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  users       User[]
+  students    Student[]
+  guardians   Guardian[]
+  classes     Class[]
+  terms       Term[]
+  feeItems    FeeItem[]
+  invoices    Invoice[]
+  payments    Payment[]
+  messages    Message[]
+  messageTemplates MessageTemplate[]
+  auditLogs   AuditLog[]
+  
+  @@index([slug])
+  @@index([isActive])
+  @@map("schools")
+}
+
+/// User account - Staff members who access the system
+model User {
+  id          String      @id @default(cuid())
+  email       String      @unique
+  phone       String?
+  name        String
+  password    String?
+  role        UserRole    @default(STAFF)
+  status      UserStatus  @default(PENDING)
+  
+  /// Email verification
+  emailVerified   Boolean  @default(false)
+  emailVerifiedAt DateTime?
+  
+  /// Last login tracking
+  lastLoginAt DateTime?
+  lastLoginIp String?
+  
+  /// Password reset
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+  
+  /// Refresh tokens (can have multiple sessions)
+  refreshTokens RefreshToken[]
+  
+  /// School association
+  schoolId    String
+  school      School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  // Relations
+  auditLogs   AuditLog[]
+  
+  @@index([email])
+  @@index([schoolId])
+  @@index([status])
+  @@map("users")
+}
+
+/// Refresh tokens for JWT authentication
+model RefreshToken {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  expiresAt   DateTime
+  isRevoked   Boolean  @default(false)
+  revokedAt   DateTime?
+  
+  /// Device/session info
+  userAgent   String?
+  ipAddress   String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// OTP for passwordless authentication
+model Otp {
+  id          String   @id @default(cuid())
+  identifier  String
+  code        String
+  type        String
+  
+  expiresAt   DateTime
+  usedAt      DateTime?
+  attempts    Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([identifier, type])
+  @@index([code])
+  @@index([expiresAt])
+  @@map("otps")
+}
+
+// ===========================================
+// STUDENT & GUARDIAN MODELS
+// ===========================================
+
+/// Student - The person enrolled in school
+model Student {
+  id            String        @id @default(cuid())
+  
+  /// Personal info
+  firstName     String
+  lastName      String
+  otherNames    String?
+  gender        Gender?
+  dateOfBirth   DateTime?     @db.Date
+  
+  /// School info
+  admissionNo   String?
+  admissionDate DateTime?     @db.Date
+  
+  /// Class assignment
+  classId       String
+  class         Class         @relation(fields: [classId], references: [id])
+  
+  /// Family grouping (for siblings)
+  familyId      String?
+  family        Family?       @relation(fields: [familyId], references: [id])
+  
+  /// Status
+  status        StudentStatus @default(ACTIVE)
+  
+  /// Custom fee adjustment (positive = surcharge, negative = discount)
+  customFeeAdjustment Int     @default(0)
+  
+  /// School association
+  schoolId      String
+  school        School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  // Relations
+  guardians     StudentGuardian[]
+  invoices      Invoice[]
+  
+  @@unique([schoolId, admissionNo])
+  @@index([schoolId])
+  @@index([classId])
+  @@index([familyId])
+  @@index([status])
+  @@index([lastName, firstName])
+  @@map("students")
+}
+
+/// Guardian - Parent or sponsor of student(s)
+model Guardian {
+  id          String    @id @default(cuid())
+  
+  /// Personal info
+  name        String
+  phone       String
+  phoneAlt    String?
+  email       String?
+  address     String?
+  occupation  String?
+  
+  /// Preferred contact method
+  preferredContact MessageChannel @default(SMS)
+  
+  /// School association
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  students    StudentGuardian[]
+  messages    Message[]
+  
+  @@index([schoolId])
+  @@index([phone])
+  @@index([email])
+  @@map("guardians")
+}
+
+/// Many-to-many relationship between students and guardians
+model StudentGuardian {
+  id          String   @id @default(cuid())
+  
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  guardianId  String
+  guardian    Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+  
+  /// Relationship type
+  relation    String
+  
+  /// Is this the primary contact for the student?
+  isPrimary   Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  
+  @@unique([studentId, guardianId])
+  @@index([studentId])
+  @@index([guardianId])
+  @@map("student_guardians")
+}
+
+/// Family group for siblings
+model Family {
+  id          String    @id @default(cuid())
+  
+  /// Family identifier (human readable)
+  familyCode  String    @unique
+  
+  /// Optional family name
+  name        String?
+  
+  /// School association
+  schoolId    String
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  students    Student[]
+  
+  @@index([schoolId])
+  @@map("families")
+}
+
+// ===========================================
+// CLASS & TERM MODELS
+// ===========================================
+
+/// Class/Grade level
+model Class {
+  id          String    @id @default(cuid())
+  
+  name        String
+  shortName   String?
+  level       Int
+  section     String?
+  
+  /// Capacity
+  capacity    Int?
+  
+  /// School association
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  /// Is this class active?
+  isActive    Boolean   @default(true)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  students    Student[]
+  feeItems    FeeItem[]
+  
+  @@unique([schoolId, name, section])
+  @@index([schoolId])
+  @@index([level])
+  @@map("classes")
+}
+
+/// Academic term
+model Term {
+  id          String    @id @default(cuid())
+  
+  name        String
+  shortName   String
+  
+  /// Academic year
+  academicYear String
+  termNumber  Int
+  
+  /// Term dates
+  startDate   DateTime  @db.Date
+  endDate     DateTime  @db.Date
+  
+  /// Fee due date for this term
+  feesDueDate DateTime? @db.Date
+  
+  /// Is this the current active term?
+  isCurrent   Boolean   @default(false)
+  
+  /// School association
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  feeItems    FeeItem[]
+  invoices    Invoice[]
+  
+  @@unique([schoolId, academicYear, termNumber])
+  @@index([schoolId])
+  @@index([isCurrent])
+  @@map("terms")
+}
+
+// ===========================================
+// FEE & BILLING MODELS
+// ===========================================
+
+/// Fee item - A type of fee charged to students
+model FeeItem {
+  id          String    @id @default(cuid())
+  
+  name        String
+  description String?
+  type        FeeType   @default(OTHER)
+  
+  /// Amount in pesewas (100 pesewas = 1 GHS)
+  amount      Int
+  
+  /// Is this fee mandatory?
+  isMandatory Boolean   @default(true)
+  
+  /// Is this a one-time fee or per-term?
+  isRecurring Boolean   @default(true)
+  
+  /// Term association (null = applies to all terms)
+  termId      String?
+  term        Term?     @relation(fields: [termId], references: [id])
+  
+  /// Class restriction (null = applies to all classes)
+  classId     String?
+  class       Class?    @relation(fields: [classId], references: [id])
+  
+  /// School association
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  /// Is this fee item active?
+  isActive    Boolean   @default(true)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  invoiceItems InvoiceItem[]
+  
+  @@index([schoolId])
+  @@index([termId])
+  @@index([classId])
+  @@index([type])
+  @@map("fee_items")
+}
+
+/// Discount rule
+model Discount {
+  id          String       @id @default(cuid())
+  
+  name        String
+  description String?
+  
+  /// Discount type and value
+  type        DiscountType
+  value       Int
+  
+  /// Conditions
+  siblingPosition Int?
+  earlyPaymentDays Int?
+  
+  /// School association
+  schoolId    String
+  
+  /// Is this discount active?
+  isActive    Boolean      @default(true)
+  
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  @@index([schoolId])
+  @@map("discounts")
+}
+
+/// Invoice - Bill sent to a student/guardian
+model Invoice {
+  id          String        @id @default(cuid())
+  
+  /// Invoice number (human readable, unique per school)
+  invoiceNo   String
+  
+  /// Student being billed
+  studentId   String
+  student     Student       @relation(fields: [studentId], references: [id])
+  
+  /// Term for this invoice
+  termId      String
+  term        Term          @relation(fields: [termId], references: [id])
+  
+  /// Amounts in pesewas
+  subtotal    Int
+  discount    Int           @default(0)
+  totalAmount Int
+  paidAmount  Int           @default(0)
+  balance     Int
+  
+  /// Status
+  status      InvoiceStatus @default(DRAFT)
+  
+  /// Due date
+  dueDate     DateTime      @db.Date
+  
+  /// Payment link
+  paylinkId   String        @unique
+  paylinkUrl  String
+  paylinkExpiresAt DateTime?
+  
+  /// Notification tracking
+  sentAt      DateTime?
+  lastReminderAt DateTime?
+  reminderCount Int         @default(0)
+  
+  /// Cancellation
+  cancelledAt    DateTime?
+  cancelledBy    String?
+  cancelReason   String?
+  
+  /// School association
+  schoolId    String
+  school      School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  // Relations
+  items       InvoiceItem[]
+  payments    Payment[]
+  messages    Message[]
+  
+  @@unique([schoolId, invoiceNo])
+  @@index([schoolId])
+  @@index([studentId])
+  @@index([termId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([paylinkId])
+  @@map("invoices")
+}
+
+/// Invoice line item
+model InvoiceItem {
+  id          String    @id @default(cuid())
+  
+  invoiceId   String
+  invoice     Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  feeItemId   String
+  feeItem     FeeItem   @relation(fields: [feeItemId], references: [id])
+  
+  /// Amounts in pesewas (captured at time of invoice creation)
+  amount      Int
+  discount    Int       @default(0)
+  discountReason String?
+  finalAmount Int
+  
+  createdAt   DateTime  @default(now())
+  
+  @@index([invoiceId])
+  @@index([feeItemId])
+  @@map("invoice_items")
+}
+
+// ===========================================
+// PAYMENT MODELS
+// ===========================================
+
+/// Payment - A payment made against an invoice
+model Payment {
+  id          String        @id @default(cuid())
+  
+  /// Payment reference (internal)
+  reference   String        @unique
+  
+  /// Invoice being paid
+  invoiceId   String
+  invoice     Invoice       @relation(fields: [invoiceId], references: [id])
+  
+  /// Amount in pesewas
+  amount      Int
+  
+  /// Payment method
+  method      PaymentMethod
+  
+  /// Status
+  status      PaymentStatus @default(PENDING)
+  
+  /// PSP details
+  pspProvider String
+  pspReference String?
+  pspStatus   String?
+  pspMetadata Json?
+  
+  /// Processing timestamps
+  initiatedAt DateTime      @default(now())
+  processedAt DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+  
+  /// Failure info
+  failureReason String?
+  
+  /// Refund info
+  refundedAt    DateTime?
+  refundedBy    String?
+  refundReason  String?
+  refundAmount  Int?
+  
+  /// For manual payments
+  isManual        Boolean   @default(false)
+  manualRecordedBy String?
+  manualProofUrl  String?
+  manualNotes     String?
+  
+  /// School association
+  schoolId    String
+  school      School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  // Relations
+  receipt     Receipt?
+  
+  @@index([schoolId])
+  @@index([invoiceId])
+  @@index([reference])
+  @@index([pspReference])
+  @@index([status])
+  @@index([method])
+  @@map("payments")
+}
+
+/// Receipt - Generated after successful payment
+model Receipt {
+  id          String    @id @default(cuid())
+  
+  /// Receipt number (human readable)
+  receiptNo   String
+  
+  /// Payment association
+  paymentId   String    @unique
+  payment     Payment   @relation(fields: [paymentId], references: [id])
+  
+  /// PDF storage
+  pdfUrl      String?
+  pdfGeneratedAt DateTime?
+  
+  /// Delivery tracking
+  sentVia     MessageChannel[]
+  sentAt      DateTime?
+  
+  /// School association
+  schoolId    String
+  
+  createdAt   DateTime  @default(now())
+  
+  @@unique([schoolId, receiptNo])
+  @@index([schoolId])
+  @@index([paymentId])
+  @@map("receipts")
+}
+
+// ===========================================
+// MESSAGING MODELS
+// ===========================================
+
+/// Message - SMS, WhatsApp, or Email sent to guardians
+model Message {
+  id          String        @id @default(cuid())
+  
+  /// Message type
+  type        MessageType
+  channel     MessageChannel
+  
+  /// Recipient
+  guardianId  String?
+  guardian    Guardian?     @relation(fields: [guardianId], references: [id])
+  
+  /// Or direct phone/email if guardian not in system
+  recipientPhone String?
+  recipientEmail String?
+  
+  /// Related invoice (optional)
+  invoiceId   String?
+  invoice     Invoice?      @relation(fields: [invoiceId], references: [id])
+  
+  /// Content
+  subject     String?
+  content     String        @db.Text
+  
+  /// Template used
+  templateId  String?
+  
+  /// Status
+  status      MessageStatus @default(QUEUED)
+  
+  /// Provider tracking
+  providerRef String?
+  providerStatus String?
+  providerResponse Json?
+  
+  /// Timestamps
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  failedAt     DateTime?
+  
+  /// Failure info
+  failureReason String?
+  retryCount   Int          @default(0)
+  
+  /// Cost tracking (for SMS)
+  cost        Int?
+  
+  /// School association
+  schoolId    String
+  school      School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  @@index([schoolId])
+  @@index([guardianId])
+  @@index([invoiceId])
+  @@index([status])
+  @@index([type])
+  @@index([channel])
+  @@map("messages")
+}
+
+/// Message template
+model MessageTemplate {
+  id          String         @id @default(cuid())
+  
+  name        String
+  type        MessageType
+  channel     MessageChannel
+  
+  /// Content with placeholders: {{studentName}}, {{amount}}, etc.
+  subject     String?
+  content     String         @db.Text
+  
+  /// Language
+  language    String         @default("en")
+  
+  /// Is this the default template for this type/channel?
+  isDefault   Boolean        @default(false)
+  
+  /// Is this a system template (cannot be deleted)?
+  isSystem    Boolean        @default(false)
+  
+  /// School association (null = system template)
+  schoolId    String?
+  school      School?        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  @@unique([schoolId, type, channel, language, isDefault])
+  @@index([schoolId])
+  @@index([type])
+  @@index([channel])
+  @@map("message_templates")
+}
+
+// ===========================================
+// AUDIT & LOGGING
+// ===========================================
+
+/// Audit log - Track all significant actions
+model AuditLog {
+  id          String      @id @default(cuid())
+  
+  /// Who performed the action
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  
+  /// What action was performed
+  action      AuditAction
+  
+  /// What entity was affected
+  entityType  String
+  entityId    String?
+  
+  /// Details of the change
+  description String
+  oldValues   Json?
+  newValues   Json?
+  metadata    Json?
+  
+  /// Request info
+  ipAddress   String?
+  userAgent   String?
+  requestId   String?
+  
+  /// School association
+  schoolId    String
+  school      School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime    @default(now())
+  
+  @@index([schoolId])
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
