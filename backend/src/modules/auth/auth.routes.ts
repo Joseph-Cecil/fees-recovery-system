@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { authController, loginSchema, requestOtpSchema, verifyOtpSchema, refreshTokenSchema, validateBody } from './auth.controller';
 
-const routers = Router();
+const router: Router = Router();
 
 router.post('/login', validateBody(loginSchema), authController.login);
 router.post('/otp/request', validateBody(requestOtpSchema), authController.requestOtp);
