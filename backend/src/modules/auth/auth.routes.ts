@@ -2,11 +2,9 @@
  * Auth routes
  */
 import { Router } from 'express';
-import { authController } from './auth.controller';
-import { loginSchema, requestOtpSchema, verifyOtpSchema, refreshTokenSchema } from './auth.dto';
-import { validateBody } from '@/shared/middleware/validation.middleware';
+import { authController, loginSchema, requestOtpSchema, verifyOtpSchema, refreshTokenSchema, validateBody } from './auth.controller';
 
-const router = Router();
+const routers = Router();
 
 router.post('/login', validateBody(loginSchema), authController.login);
 router.post('/otp/request', validateBody(requestOtpSchema), authController.requestOtp);

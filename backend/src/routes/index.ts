@@ -8,7 +8,7 @@ import { authRoutes } from '@/modules/auth/auth.routes';
 const router = Router();
 
 // Health check (public)
-router.get('/health', (req, res) => {
+router.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 

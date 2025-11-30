@@ -6,6 +6,10 @@ import { authService } from './auth.service';
 import { loginSchema, requestOtpSchema, verifyOtpSchema, refreshTokenSchema } from './auth.dto';
 import { validateBody } from '@/shared/middleware/validation.middleware';
 
+// Export schemas for use in routes
+export { loginSchema, requestOtpSchema, verifyOtpSchema, refreshTokenSchema };
+export { validateBody };
+
 export class AuthController {
   /**
    * Login

@@ -1,6 +1,8 @@
 /**
  * Prisma Client Singleton
  * Ensures only one instance of Prisma Client is created
+ * 
+ * NOTE: Run `npm run prisma:generate` before using this module
  */
 import { PrismaClient } from '@prisma/client';
 

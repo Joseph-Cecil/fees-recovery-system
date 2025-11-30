@@ -5,7 +5,6 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/core/database/prisma.client';
 import { authConfig } from '@/config';
-import { cacheService } from '@/core/cache/cache.service';
 import { UnauthorizedError, BadRequestError } from '@/shared/errors';
 import { LoginDto, RequestOtpDto, VerifyOtpDto, RefreshTokenDto, AuthResponse } from './auth.dto';
 import { AuthenticatedUser } from '@/shared/middleware/auth.middleware';
@@ -83,7 +82,7 @@ export class AuthService {
   /**
    * Verify OTP and login
    */
-  async verifyOtp(dto: VerifyOtpDto, ipAddress: string, userAgent: string): Promise<AuthResponse> {
+  async verifyOtp(_dto: VerifyOtpDto, _ipAddress: string, _userAgent: string): Promise<AuthResponse> {
     // TODO: Implement OTP verification
     throw new BadRequestError('OTP verification not yet implemented');
   }
@@ -135,6 +134,9 @@ export class AuthService {
    * Generate access token
    */
   private generateAccessToken(user: AuthenticatedUser): string {
+    if (!authConfig.accessSecret) {
+      throw new Error('JWT_ACCESS_SECRET is not configured');
+    }
     return jwt.sign(
       {
         sub: user.id,
@@ -144,7 +146,7 @@ export class AuthService {
         type: 'access',
       },
       authConfig.accessSecret,
-      { expiresIn: authConfig.accessExpiration }
+      { expiresIn: authConfig.accessExpiration } as jwt.SignOptions
     );
   }
 
@@ -152,6 +154,9 @@ export class AuthService {
    * Generate refresh token
    */
   private generateRefreshToken(user: AuthenticatedUser): string {
+    if (!authConfig.refreshSecret) {
+      throw new Error('JWT_REFRESH_SECRET is not configured');
+    }
     return jwt.sign(
       {
         sub: user.id,
@@ -161,7 +166,7 @@ export class AuthService {
         type: 'refresh',
       },
       authConfig.refreshSecret,
-      { expiresIn: authConfig.refreshExpiration }
+      { expiresIn: authConfig.refreshExpiration } as jwt.SignOptions
     );
   }
 

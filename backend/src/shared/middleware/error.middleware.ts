@@ -12,7 +12,7 @@ export function errorMiddleware(
   error: Error | AppError,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void {
   // Log error
   if (error instanceof AppError) {

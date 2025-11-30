@@ -47,7 +47,7 @@ function extractToken(req: Request): string | null {
  */
 export async function authMiddleware(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
@@ -110,13 +110,15 @@ export async function authMiddleware(
  */
 export async function optionalAuthMiddleware(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
     const token = extractToken(req);
     if (token) {
-      await authMiddleware(req, res, () => {});
+      await authMiddleware(req, _res, () => {
+        // Empty callback for optional auth
+      });
     }
     next();
   } catch {
